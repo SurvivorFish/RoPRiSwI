@@ -1,3 +1,5 @@
+from numpy.f2py.crackfortran import previous_context
+
 import drawing
 import time  # Для паузы в анимации, если нужно
 import math
@@ -23,17 +25,16 @@ if __name__ == "__main__":
     # --- Параметры ---
     BODY_SIZE = 0.25  # Размер тела (расстояние от центра до вершины для октаэдра)
     ROTATION_AXIS = 'z'  # Вокруг какой оси вращать ('x', 'y', 'z')
-    ROTATION_SPEED_DEG_PER_SEC = 120  # Скорость вращения в градусах в секунду
+    ROTATION_SPEED_DEG_PER_SEC = 1  # Скорость вращения в градусах в секунду
     ANIMATION_INTERVAL_MS = 30  # Интервал обновления кадра (в миллисекундах)
     AMBIENT_LIGHT = 0.2  # Уровень фонового освещения
     # Направление на источник света (например, солнце сверху-справа-спереди)
     light_direction = Vector(1, 1, 1).normalize()
 
     # Создаем ОКТАЭДР
-    initial_body = create_shararam(Point(2, 0, 0), r=BODY_SIZE, n=10, m=10, V=Vector(1, 0, 0))
-    secondary_body = create_octahedron(Point(1, 0, 0), size=0.5 * BODY_SIZE)
-    rotation_center = initial_body.center  # Вращаем вокруг центра тела
-    rotation_center2 = secondary_body.center  # Вращаем вокруг центра тела 2
+    initial_body = create_shararam(Point(0, 0, 0), m=100000000000, r=BODY_SIZE, N=10, M=10, V=Vector(0, 0, 0))
+    secondary_body = create_octahedron(Point(0, 5, 0), m=100000, size=0.5 * BODY_SIZE, V=Vector(5, 0, 0))
+    print(secondary_body.V)
 
     # --- Настройка Matplotlib ---
     fig = plt.figure(figsize=(8, 7))
@@ -41,22 +42,25 @@ if __name__ == "__main__":
 
     # --- Функция обновления для анимации ---
     start_time = time.time()
+    previous_time = time.time()
+    fps = 30
+    dt = 1/fps
 
 
     def update(frame):
+        global initial_body, secondary_body
         # Вычисляем текущий угол поворота
-        elapsed_time = time.time() - start_time
-        current_angle_deg = (elapsed_time * ROTATION_SPEED_DEG_PER_SEC) % 360
-        current_angle_rad = math.radians(current_angle_deg)
+        '''current_angle_deg = (elapsed_time * ROTATION_SPEED_DEG_PER_SEC) % 360
+        current_angle_rad = math.radians(current_angle_deg)'''
 
         # Вращаем ИСХОДНОЕ тело (чтобы избежать накопления ошибок)
-        rotated_body = initial_body.rotate(ROTATION_AXIS, current_angle_rad, rotation_center).move(initial_body.V*elapsed_time)
-        rotated_body2 = secondary_body.rotate(ROTATION_AXIS, current_angle_rad, rotation_center2)
+        '''initial_body = initial_body.move(initial_body.V*dt)
+        secondary_body = secondary_body.move(secondary_body.V*dt)'''
+
 
         # Визуализируем повернутое тело
-        frame_title = (f"Вращение Октаэдра вокруг '{ROTATION_AXIS.upper()}' "
-                       f"({current_angle_deg:.1f}°)")
-        visualize_polyhedron(ax, (rotated_body, rotated_body2), light_direction,
+        frame_title = "Симуляция"
+        visualize_polyhedron(ax, (initial_body, secondary_body), light_direction,
                              title=frame_title, ambient_light=AMBIENT_LIGHT)
 
         # Возвращаем измененные элементы (для blitting, хотя здесь он может не работать)

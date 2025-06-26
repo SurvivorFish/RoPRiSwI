@@ -1,12 +1,19 @@
 import math
+from parameters import ROTATION_AXIS, ROTATION_SPEED_DEG_PER_SEC
 from typing import List, Tuple, Optional
 
 # --- импорты для визуализации ---
 import matplotlib.pyplot as plt
+from fontTools.misc.bezierTools import epsilon
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from matplotlib.animation import FuncAnimation
 import matplotlib.colors as mcolors
+
+import parameters
+
+# Константа G
+G = 6.67 * 10**-11
 
 # Константа для сравнения чисел с плавающей запятой
 EPSILON = 1e-9
@@ -397,11 +404,15 @@ class Facet:
 class Polyhedron:
     """Представляет многогранник как набор граней."""
 
-    def __init__(self, facets: List[Facet], V: Vector = Vector(0, 0, 0), edge_col: str = 'black', face_col : str = 'red'):
+    def __init__(self, facets: List[Facet], m: float, V: Vector = Vector(0, 0, 0), center: Point = Point(0,0,0), edge_col: str = 'black',
+                 face_col: str = 'red'):
         self.facets = facets
         self._vertices_cache: Optional[List[Point]] = None
         self._center_cache: Optional[Point] = None
+        self.center = center
         self.V = V  # скорость
+        self.a = Vector(0, 0, 0)  # ускорение
+        self.m = m
         self.edge_col = edge_col
         self.face_col = face_col
 
@@ -424,7 +435,7 @@ class Polyhedron:
             self._vertices_cache = unique_vertices
         return self._vertices_cache
 
-    @property
+    '''@property
     def center(self) -> Point:
         """Приблизительный центр многогранника (среднее арифм. уник. вершин, кэшир.)."""
         if self._center_cache is None:
@@ -437,7 +448,7 @@ class Polyhedron:
                 sum_z = sum(v.z for v in all_vertices)
                 n = len(all_vertices)
                 self._center_cache = Point(sum_x / n, sum_y / n, sum_z / n)
-        return self._center_cache
+        return self._center_cache'''
 
     def rotate(self, axis: str, angle_rad: float, center: Optional[Point] = None) -> 'Polyhedron':
         """
@@ -450,7 +461,9 @@ class Polyhedron:
         rotated_facets = [facet.rotate(axis, angle_rad, rotation_center) for facet in self.facets]
 
         # Создаем новый объект, кэш будет пересчитан при первом доступе
-        return Polyhedron(rotated_facets)
+        self.facets = rotated_facets
+        return self
+
 
     def move(self, vector: Vector) -> 'Polyhedron':
         """
@@ -458,9 +471,11 @@ class Polyhedron:
         Если center не задан, вращение происходит вокруг геометрического центра многогранника.
         Возвращает новый многогранник (с очищенным кэшем).
         """
-        rotated_facets = [facet.move(vector) for facet in self.facets]
+        moved_facets = [facet.move(vector) for facet in self.facets]
         # Создаем новый объект, кэш будет пересчитан при первом доступе
-        return Polyhedron(rotated_facets)
+        self.center = self.center + vector
+        self.facets = moved_facets
+        return self
 
     # --- Методы, связанные с видимостью и освещением ---
 
@@ -498,15 +513,23 @@ class Polyhedron:
         total_intensity = ambient_light + diffuse_intensity * (1.0 - ambient_light)
         return max(ambient_light, min(1.0, total_intensity))  # Ограничиваем [ambient, 1.0]
 
-    @center.setter
+    '''@center.setter
     def center(self, value):
-        self._center = value
+        self.center = value'''
+
+    def rho(self, other):
+        R = math.sqrt((self.center.x - other.center.x)**2 + (self.center.y - other.center.y)**2 + (self.center.z - other.center.z)**2)
+        return R
+
+    '''@center.setter
+    def center(self, value):
+        self._center = value'''
 
 
 # =============================================
 # Функция создания Октаэдра (Восьмигранника)
 # =============================================
-def create_octahedron(center: Point or tuple, size: float, V: Vector = Vector(0, 0, 0)) -> Polyhedron:
+def create_octahedron(center: Point or tuple, size: float, m: float, V: Vector = Vector(0, 0, 0)) -> Polyhedron:
     if type(center) == tuple:
         x = center[0]
         y = center[1]
@@ -541,13 +564,14 @@ def create_octahedron(center: Point or tuple, size: float, V: Vector = Vector(0,
         Facet([v[5], v[3], v[1]]),  # Низ, -Y, -X
         Facet([v[5], v[0], v[3]])  # Низ, +X, -Y
     ]
-    return Polyhedron(facets, V=V)
+    return Polyhedron(facets, m, center= center,V=V)
 
 
 # =============================================
 # Функция создания Шара
 # =============================================
-def create_shararam(center: Point or tuple, r: float, n: int, m: int, V: Vector = Vector(0, 0, 0)) -> Polyhedron:
+def create_shararam(center: Point or tuple, r: float, N: int, M: int, m: float,
+                    V: Vector = Vector(0, 0, 0)) -> Polyhedron:
     if type(center) == tuple:
         cx = center[0]
         cy = center[1]
@@ -560,35 +584,35 @@ def create_shararam(center: Point or tuple, r: float, n: int, m: int, V: Vector 
        n, m - количество точек, см ниже"""
     ps = [Point(cx, cy, cz + r)]  # = points - list точек
     fs = []  # = faces - list граней
-    for i in range(1, n + 1):  # vertical angle (first and last points already added)
-        phi = i * math.pi / (n + 1)
-        for e in range(m):  # horizontal part of angle
-            theta = e * 2 * math.pi * 1 / m
+    for i in range(1, N + 1):  # vertical angle (first and last points already added)
+        phi = i * math.pi / (N + 1)
+        for e in range(M):  # horizontal part of angle
+            theta = e * 2 * math.pi * 1 / M
             ps.append(Point(cx + r * math.sin(phi) * math.cos(theta), cy + r * math.sin(phi) * math.sin(theta),
                             cz + r * math.cos(phi)))
     ps.append(Point(cx, cy, cz - r))
 
     # сначала добавим верхний и нижний уровни (которые касаются тех точек)
     # всего точек 1 + n*m + 1 = n*m+2
-    for i in range(m - 1):
+    for i in range(M - 1):
         fs.append(Facet([ps[0], ps[1 + i], ps[2 + i]]))
-    fs.append(Facet([ps[m], ps[1], ps[0]]))
-    for i in range(m - 1):
-        fs.append(Facet([ps[n * m + 1], ps[n * m - i], ps[n * m - i - 1]]))
-    fs.append(Facet([ps[n * m + 1], ps[n * m - m + 1], ps[n * m]]))
+    fs.append(Facet([ps[M], ps[1], ps[0]]))
+    for i in range(M - 1):
+        fs.append(Facet([ps[N * M + 1], ps[N * M - i], ps[N * M - i - 1]]))
+    fs.append(Facet([ps[N * M + 1], ps[N * M - N + 1], ps[N * M]]))
 
-    if n != 1:
-        for i in range(n - 1):
-            for j in range(m):
-                if j != m - 1:
-                    fs.append(Facet([ps[i * m + j + 1], ps[(i + 1) * m + j + 1], ps[(i + 1) * m + j + 2]]))
+    if N != 1:
+        for i in range(N - 1):
+            for j in range(M):
+                if j != M - 1:
+                    fs.append(Facet([ps[i * M + j + 1], ps[(i + 1) * M + j + 1], ps[(i + 1) * M + j + 2]]))
                 else:
-                    fs.append(Facet([ps[i * m + m], ps[(i + 1) * m + m], ps[(i + 1) * m + 1]]))
+                    fs.append(Facet([ps[i * M + M], ps[(i + 1) * M + M], ps[(i + 1) * M + 1]]))
                 if j != 0:
-                    fs.append(Facet([ps[(i + 1) * m + j + 1], ps[i * m + j + 1], ps[i * m + j]]))
+                    fs.append(Facet([ps[(i + 1) * M + j + 1], ps[i * M + j + 1], ps[i * M + j]]))
                 else:
-                    fs.append(Facet([ps[(i + 1) * m + 1], ps[i * m + 1], ps[i * m + m]]))
-        return Polyhedron(fs, edge_col='red', V=V)
+                    fs.append(Facet([ps[(i + 1) * M + 1], ps[i * M + 1], ps[i * M + M]]))
+    return Polyhedron(fs, m, center= center, V=V, edge_col='red')
 
 
 # =============================================
@@ -656,6 +680,22 @@ def visualize_polyhedron(ax: Axes3D, polyhedrons: Polyhedron or tuple or list,
 
             face_colors.append(f_color)
             edge_colors.append(e_color)
+    for polyhedron in polyhedrons:
+        polyhedron.a = Vector(0, 0, 0)
+        for other_polyhedrons in polyhedrons:
+            if polyhedron != other_polyhedrons:
+                if polyhedron.rho(other_polyhedrons) > epsilon:
+                    polyhedron.a = - (G * other_polyhedrons.m / (polyhedron.rho(other_polyhedrons))**3 )*(polyhedron.center - other_polyhedrons.center)
+        polyhedron.V = polyhedron.V + polyhedron.a
+        polyhedron.rotate(ROTATION_AXIS, ROTATION_SPEED_DEG_PER_SEC)
+
+    for polyhedron in polyhedrons:
+        polyhedron.move(polyhedron.V/30)
+
+    '''s = ''
+    for polyhedron in polyhedrons:
+        s = s + ' ' + str(polyhedron.center)
+    print(s)'''
 
     if not all_vertices:  # Если нет видимых граней
         print("Нет видимых граней для отрисовки.")
@@ -675,7 +715,7 @@ def visualize_polyhedron(ax: Axes3D, polyhedrons: Polyhedron or tuple or list,
             x_lim0, y_lim0, z_lim0 = _get_polyhedron_bounds(polyhedron, padding=0.2)
             x_lim, y_lim, z_lim = (min(x_lim[0], x_lim0[0]), max(x_lim[1], x_lim0[1])), (
                 min(y_lim[0], y_lim0[0]), max(y_lim[1], y_lim0[1])), (
-                                      min(z_lim[0], z_lim0[0]), max(z_lim[1], z_lim0[1]))
+                min(z_lim[0], z_lim0[0]), max(z_lim[1], z_lim0[1]))
         ax.set_xlim(x_lim)
         ax.set_ylim(y_lim)
         ax.set_zlim(z_lim)
